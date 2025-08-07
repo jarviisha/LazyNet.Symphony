@@ -7,7 +7,7 @@
     
     <!-- Package Information -->
     <PackageId>LazyNet.Symphony</PackageId>
-    <Version>1.0.0-alpha</Version>
+    <Version>1.0.0-alpha.2</Version>
     <Authors>Jarviis Ha</Authors>
     <Description>A high-performance, lightweight implementation of the Mediator pattern for .NET applications, providing a simple interface to handle requests, commands, queries, and domain events.</Description>
     <PackageProjectUrl>https://github.com/jarviisha/LazyNet.Symphony</PackageProjectUrl>
