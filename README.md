@@ -8,7 +8,7 @@ A high-performance, lightweight implementation of the Mediator pattern for .NET 
 
 > **⚠️ Alpha Release Warning**
 > 
-> This is an **alpha version (1.0.0-alpha)** of Symphony. While the core functionality is stable and tested, the API may still change in future releases. 
+> This is an **alpha version (1.0.0-alpha.2)** of Symphony. While the core functionality is stable and tested, the API may still change in future releases. 
 > 
 > - ✅ Safe for **testing** and **evaluation**
 > - ⚠️ **Not recommended** for production use yet
@@ -67,17 +67,17 @@ public class UsersController : ControllerBase
 
 ### Package Manager Console
 ```powershell
-Install-Package LazyNet.Symphony
+Install-Package LazyNet.Symphony -Version 1.0.0-alpha.2
 ```
 
 ### .NET CLI
 ```bash
-dotnet add package LazyNet.Symphony
+dotnet add package LazyNet.Symphony --prerelease
 ```
 
 ### PackageReference
 ```xml
-<PackageReference Include="LazyNet.Symphony" Version="1.0.0-alpha" />
+<PackageReference Include="LazyNet.Symphony" Version="1.0.0-alpha.2" />
 ```
 
 ## 🚀 Quick Start
