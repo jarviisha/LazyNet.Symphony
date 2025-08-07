@@ -1,0 +1,49 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    
+    <!-- Package Information -->
+    <PackageId>LazyNet.Symphony</PackageId>
+    <Version>1.0.0-alpha</Version>
+    <Authors>Jarviis Ha</Authors>
+    <Description>A high-performance, lightweight implementation of the Mediator pattern for .NET applications, providing a simple interface to handle requests, commands, queries, and domain events.</Description>
+    <PackageProjectUrl>https://github.com/jarviisha/LazyNet.Symphony</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <RepositoryUrl>https://github.com/jarviisha/LazyNet.Symphony</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>mediator;cqrs;commands;queries;events;pipeline;dotnet;performance</PackageTags>
+    <PackageReleaseNotes>Initial release of LazyNet.Symphony - A high-performance mediator implementation with compiled delegates and advanced caching.</PackageReleaseNotes>
+    <Copyright>Copyright © Jarviis Ha 2025</Copyright>
+    
+    <!-- Package Options -->
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    
+    <!-- Assembly Information -->
+    <AssemblyTitle>LazyNet.Symphony</AssemblyTitle>
+    <AssemblyDescription>A high-performance, lightweight implementation of the Mediator pattern for .NET applications</AssemblyDescription>
+    <AssemblyProduct>LazyNet.Symphony</AssemblyProduct>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>LazyNet.Symphony.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\"/>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{68EB2B7C-206F-4605-AD63-C7413CC9B4CC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LazyNet.Symphony", "src\LazyNet.Symphony\LazyNet.Symphony.csproj", "{71C0DE6A-64E6-4F15-9614-6FC8EB34CEFD}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{AC04A704-6FE5-4437-BF93-D6F1E2AA40D5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LazyNet.Symphony.Tests", "tests\LazyNet.Symphony.Tests\LazyNet.Symphony.Tests.csproj", "{7130AB8D-0CFF-412E-8476-36440D3DE186}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{71C0DE6A-64E6-4F15-9614-6FC8EB34CEFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{71C0DE6A-64E6-4F15-9614-6FC8EB34CEFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{71C0DE6A-64E6-4F15-9614-6FC8EB34CEFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{71C0DE6A-64E6-4F15-9614-6FC8EB34CEFD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7130AB8D-0CFF-412E-8476-36440D3DE186}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7130AB8D-0CFF-412E-8476-36440D3DE186}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7130AB8D-0CFF-412E-8476-36440D3DE186}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7130AB8D-0CFF-412E-8476-36440D3DE186}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{71C0DE6A-64E6-4F15-9614-6FC8EB34CEFD} = {68EB2B7C-206F-4605-AD63-C7413CC9B4CC}
+		{7130AB8D-0CFF-412E-8476-36440D3DE186} = {AC04A704-6FE5-4437-BF93-D6F1E2AA40D5}
+	EndGlobalSection
+EndGlobal
