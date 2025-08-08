@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq.Expressions;
 using System.Reflection;
 using LazyNet.Symphony.Exceptions;
 
@@ -16,14 +17,21 @@ public delegate Task<TResponse> PipelineNext<TResponse>();
 /// </summary>
 internal static class MediatorExecutionHelper
 {
-    // Cache for compiled handler delegates to avoid reflection overhead
+    // Constants to avoid magic strings and numbers
+    private const string HANDLE_METHOD_NAME = "Handle";
+    private const int REQUEST_HANDLER_PARAMETER_COUNT = 2;
+    private const int BEHAVIOR_PARAMETER_COUNT = 3;
+    private const int EVENT_HANDLER_PARAMETER_COUNT = 2;
+
+    // Cache for compiled handler delegates
     private static readonly ConcurrentDictionary<Type, Func<object, object, CancellationToken, Task<object>>> HandlerCache = new();
-
-    // Cache for compiled behavior delegates to avoid reflection overhead  
     private static readonly ConcurrentDictionary<Type, Func<object, object, PipelineNext<object>, CancellationToken, Task<object>>> BehaviorCache = new();
-
-    // Cache for compiled event handler delegates to avoid reflection overhead
     private static readonly ConcurrentDictionary<Type, Func<object, object, CancellationToken, Task>> EventHandlerCache = new();
+
+    // Cache for method resolution to avoid repeated reflection
+    private static readonly ConcurrentDictionary<(Type HandlerType, Type RequestType), MethodInfo> MethodCache = new();
+    private static readonly ConcurrentDictionary<(Type BehaviorType, Type RequestType, Type ResponseType), MethodInfo> BehaviorMethodCache = new();
+    private static readonly ConcurrentDictionary<(Type HandlerType, Type EventType), MethodInfo> EventMethodCache = new();
 
     /// <summary>
     /// Executes a request handler with caching
@@ -38,8 +46,8 @@ internal static class MediatorExecutionHelper
         // Get or create cached compiled delegate
         var compiledHandler = HandlerCache.GetOrAdd(handlerType, type =>
         {
-            var handleMethod = GetHandleMethod(type, request.GetType());
-            return CreateHandlerDelegate(handleMethod);
+            var handleMethod = GetCachedHandleMethod(type, request.GetType());
+            return CreateOptimizedHandlerDelegate(handleMethod);
         });
 
         var result = await compiledHandler(handler, request, cancellationToken);
@@ -61,17 +69,12 @@ internal static class MediatorExecutionHelper
         // Get or create cached compiled delegate
         var compiledBehavior = BehaviorCache.GetOrAdd(behaviorType, type =>
         {
-            var handleMethod = GetBehaviorHandleMethod(type, request.GetType(), typeof(TResponse));
-            return CreateBehaviorDelegate(handleMethod);
+            var handleMethod = GetCachedBehaviorHandleMethod(type, request.GetType(), typeof(TResponse));
+            return CreateOptimizedBehaviorDelegate(handleMethod);
         });
 
-        // Wrap the typed next delegate to return object
-        PipelineNext<object> wrappedNext = async () =>
-        {
-            var result = await next();
-            return (object?)result!;
-        };
-
+        // Wrap the typed next delegate
+        var wrappedNext = CreateWrappedNext(next);
         var result = await compiledBehavior(behavior, request, wrappedNext, cancellationToken);
         return (TResponse)result;
     }
@@ -89,293 +92,304 @@ internal static class MediatorExecutionHelper
         // Get or create cached compiled delegate
         var compiledHandler = EventHandlerCache.GetOrAdd(handlerType, type =>
         {
-            var handleMethod = GetEventHandleMethod(type, domainEvent.GetType());
-            return CreateEventHandlerDelegate(handleMethod);
+            var handleMethod = GetCachedEventHandleMethod(type, domainEvent.GetType());
+            return CreateOptimizedEventHandlerDelegate(handleMethod);
         });
 
         await compiledHandler(handler, domainEvent, cancellationToken);
     }
 
-    /// <summary>
-    /// Gets the Handle method from a request handler type with specific signature matching
-    /// </summary>
-    private static MethodInfo GetHandleMethod(Type handlerType, Type requestType)
+    #region Method Resolution with Caching
+
+    private static MethodInfo GetCachedHandleMethod(Type handlerType, Type requestType)
     {
-        // First try to find the method directly on the type
-        var methods = handlerType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name == "Handle")
-            .Where(m => m.GetParameters().Length == 2)
-            .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(requestType))
-            .Where(m => m.GetParameters()[1].ParameterType == typeof(CancellationToken))
-            .ToArray();
-
-        if (methods.Length == 1)
-            return methods[0];
-
-        // Try to find Handle method from interfaces
-        var interfaces = handlerType.GetInterfaces();
-        foreach (var @interface in interfaces)
-        {
-            var interfaceMethods = @interface.GetMethods()
-                .Where(m => m.Name == "Handle")
-                .Where(m => m.GetParameters().Length == 2)
-                .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(requestType))
-                .Where(m => m.GetParameters()[1].ParameterType == typeof(CancellationToken))
-                .ToArray();
-
-            if (interfaceMethods.Length == 1)
-                return interfaceMethods[0];
-        }
-
-        throw new MethodResolutionException(handlerType, "Handle", new[] { requestType, typeof(CancellationToken) })
-            .WithContext("RequestType", requestType.FullName)
-            .WithContext("SearchedInterfaces", string.Join(", ", interfaces.Select(i => i.Name)));
+        return MethodCache.GetOrAdd((handlerType, requestType), key =>
+            ResolveHandleMethod(key.HandlerType, key.RequestType));
     }
 
-    /// <summary>
-    /// Gets the Handle method from a behavior type with specific signature matching
-    /// </summary>
-    private static MethodInfo GetBehaviorHandleMethod(Type behaviorType, Type requestType, Type responseType)
+    private static MethodInfo GetCachedBehaviorHandleMethod(Type behaviorType, Type requestType, Type responseType)
+    {
+        return BehaviorMethodCache.GetOrAdd((behaviorType, requestType, responseType), key =>
+            ResolveBehaviorHandleMethod(key.BehaviorType, key.RequestType, key.ResponseType));
+    }
+
+    private static MethodInfo GetCachedEventHandleMethod(Type handlerType, Type eventType)
+    {
+        return EventMethodCache.GetOrAdd((handlerType, eventType), key =>
+            ResolveEventHandleMethod(key.HandlerType, key.EventType));
+    }
+
+    private static MethodInfo ResolveHandleMethod(Type handlerType, Type requestType)
+    {
+        // Try direct methods first
+        var method = FindMethodOnType(handlerType, HANDLE_METHOD_NAME, 
+            m => ValidateHandlerMethod(m, requestType));
+
+        if (method != null) return method;
+
+        // Try interface methods
+        method = FindMethodOnInterfaces(handlerType, HANDLE_METHOD_NAME,
+            m => ValidateHandlerMethod(m, requestType));
+
+        if (method != null) return method;
+
+        throw CreateMethodResolutionException(handlerType, requestType, typeof(CancellationToken));
+    }
+
+    private static MethodInfo ResolveBehaviorHandleMethod(Type behaviorType, Type requestType, Type responseType)
     {
         var nextDelegateType = typeof(PipelineNext<>).MakeGenericType(responseType);
-
-        // Try to find the method directly on the type
-        var methods = behaviorType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name == "Handle")
-            .Where(m => m.GetParameters().Length == 3)
-            .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(requestType))
-            .Where(m => m.GetParameters()[1].ParameterType == nextDelegateType)
-            .Where(m => m.GetParameters()[2].ParameterType == typeof(CancellationToken))
-            .ToArray();
-
-        if (methods.Length == 1)
-            return methods[0];
-
-        // Also try with Func<Task<T>> for backward compatibility
         var funcNextDelegateType = typeof(Func<>).MakeGenericType(typeof(Task<>).MakeGenericType(responseType));
-        var funcMethods = behaviorType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name == "Handle")
-            .Where(m => m.GetParameters().Length == 3)
-            .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(requestType))
-            .Where(m => m.GetParameters()[1].ParameterType == funcNextDelegateType)
-            .Where(m => m.GetParameters()[2].ParameterType == typeof(CancellationToken))
-            .ToArray();
 
-        if (funcMethods.Length == 1)
-            return funcMethods[0];
+        // Try direct methods first
+        var method = FindMethodOnType(behaviorType, HANDLE_METHOD_NAME,
+            m => ValidateBehaviorMethod(m, requestType, nextDelegateType, funcNextDelegateType));
 
-        // Try to find Handle method from interfaces
-        var interfaces = behaviorType.GetInterfaces();
-        foreach (var @interface in interfaces)
-        {
-            var interfaceMethods = @interface.GetMethods()
-                .Where(m => m.Name == "Handle")
-                .Where(m => m.GetParameters().Length == 3)
-                .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(requestType))
-                .Where(m => m.GetParameters()[1].ParameterType == nextDelegateType || m.GetParameters()[1].ParameterType == funcNextDelegateType)
-                .Where(m => m.GetParameters()[2].ParameterType == typeof(CancellationToken))
-                .ToArray();
+        if (method != null) return method;
 
-            if (interfaceMethods.Length == 1)
-                return interfaceMethods[0];
-        }
+        // Try interface methods
+        method = FindMethodOnInterfaces(behaviorType, HANDLE_METHOD_NAME,
+            m => ValidateBehaviorMethod(m, requestType, nextDelegateType, funcNextDelegateType));
 
-        throw new MethodResolutionException(behaviorType, "Handle", new[] { requestType, nextDelegateType, typeof(CancellationToken) })
-            .WithContext("RequestType", requestType.FullName)
-            .WithContext("ResponseType", responseType.FullName)
-            .WithContext("NextDelegateType", nextDelegateType.FullName)
-            .WithContext("SearchedInterfaces", string.Join(", ", interfaces.Select(i => i.Name)));
+        if (method != null) return method;
+
+        throw CreateBehaviorMethodResolutionException(behaviorType, requestType, responseType, nextDelegateType);
     }
 
-    /// <summary>
-    /// Gets the Handle method from an event handler type with specific signature matching
-    /// </summary>
-    private static MethodInfo GetEventHandleMethod(Type handlerType, Type eventType)
+    private static MethodInfo ResolveEventHandleMethod(Type handlerType, Type eventType)
     {
-        // Try to find the method directly on the type
-        var methods = handlerType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name == "Handle")
-            .Where(m => m.GetParameters().Length == 2)
-            .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(eventType))
-            .Where(m => m.GetParameters()[1].ParameterType == typeof(CancellationToken))
-            .Where(m => m.ReturnType == typeof(Task))
-            .ToArray();
+        // Try direct methods first
+        var method = FindMethodOnType(handlerType, HANDLE_METHOD_NAME,
+            m => ValidateEventHandlerMethod(m, eventType));
 
-        if (methods.Length == 1)
-            return methods[0];
+        if (method != null) return method;
 
-        // Try to find Handle method from interfaces
-        var interfaces = handlerType.GetInterfaces();
-        foreach (var @interface in interfaces)
-        {
-            var interfaceMethods = @interface.GetMethods()
-                .Where(m => m.Name == "Handle")
-                .Where(m => m.GetParameters().Length == 2)
-                .Where(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(eventType))
-                .Where(m => m.GetParameters()[1].ParameterType == typeof(CancellationToken))
-                .Where(m => m.ReturnType == typeof(Task))
-                .ToArray();
+        // Try interface methods
+        method = FindMethodOnInterfaces(handlerType, HANDLE_METHOD_NAME,
+            m => ValidateEventHandlerMethod(m, eventType));
 
-            if (interfaceMethods.Length == 1)
-                return interfaceMethods[0];
-        }
+        if (method != null) return method;
 
-        throw new MethodResolutionException(handlerType, "Handle", new[] { eventType, typeof(CancellationToken) })
-            .WithContext("EventType", eventType.FullName)
-            .WithContext("ExpectedReturnType", typeof(Task).FullName)
-            .WithContext("SearchedInterfaces", string.Join(", ", interfaces.Select(i => i.Name)));
+        throw CreateEventMethodResolutionException(handlerType, eventType);
     }
 
-    /// <summary>
-    /// Creates a compiled delegate for request handlers
-    /// </summary>
-    private static Func<object, object, CancellationToken, Task<object>> CreateHandlerDelegate(MethodInfo handleMethod)
+    #endregion
+
+    #region Method Finding Helpers
+
+    private static MethodInfo? FindMethodOnType(Type type, string methodName, Func<MethodInfo, bool> validator)
     {
-        // Use direct reflection invoke to avoid complex Expression compilation issues
+        return type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == methodName)
+            .Where(validator)
+            .SingleOrDefault();
+    }
+
+    private static MethodInfo? FindMethodOnInterfaces(Type type, string methodName, Func<MethodInfo, bool> validator)
+    {
+        return type.GetInterfaces()
+            .SelectMany(i => i.GetMethods())
+            .Where(m => m.Name == methodName)
+            .Where(validator)
+            .SingleOrDefault();
+    }
+
+    private static bool ValidateHandlerMethod(MethodInfo method, Type requestType)
+    {
+        var parameters = method.GetParameters();
+        return parameters.Length == REQUEST_HANDLER_PARAMETER_COUNT &&
+               parameters[0].ParameterType.IsAssignableFrom(requestType) &&
+               parameters[1].ParameterType == typeof(CancellationToken);
+    }
+
+    private static bool ValidateBehaviorMethod(MethodInfo method, Type requestType, Type nextDelegateType, Type funcNextDelegateType)
+    {
+        var parameters = method.GetParameters();
+        return parameters.Length == BEHAVIOR_PARAMETER_COUNT &&
+               parameters[0].ParameterType.IsAssignableFrom(requestType) &&
+               (parameters[1].ParameterType == nextDelegateType || parameters[1].ParameterType == funcNextDelegateType) &&
+               parameters[2].ParameterType == typeof(CancellationToken);
+    }
+
+    private static bool ValidateEventHandlerMethod(MethodInfo method, Type eventType)
+    {
+        var parameters = method.GetParameters();
+        return parameters.Length == EVENT_HANDLER_PARAMETER_COUNT &&
+               parameters[0].ParameterType.IsAssignableFrom(eventType) &&
+               parameters[1].ParameterType == typeof(CancellationToken) &&
+               method.ReturnType == typeof(Task);
+    }
+
+    #endregion
+
+    #region Optimized Delegate Creation with Expression Trees
+
+    private static Func<object, object, CancellationToken, Task<object>> CreateOptimizedHandlerDelegate(MethodInfo handleMethod)
+    {
+        // Use compiled expressions for better performance than reflection
+        var handlerParam = Expression.Parameter(typeof(object), "handler");
+        var requestParam = Expression.Parameter(typeof(object), "request");
+        var tokenParam = Expression.Parameter(typeof(CancellationToken), "token");
+
+        var handlerType = handleMethod.DeclaringType ?? throw new InvalidOperationException("Method must have a declaring type");
+        var requestType = handleMethod.GetParameters()[0].ParameterType;
+
+        var handlerCast = Expression.Convert(handlerParam, handlerType);
+        var requestCast = Expression.Convert(requestParam, requestType);
+
+        var methodCall = Expression.Call(handlerCast, handleMethod, requestCast, tokenParam);
+
+        // Handle Task<T> result extraction
+        var taskResultExpr = CreateTaskResultExpression(methodCall);
+        var lambda = Expression.Lambda<Func<object, object, CancellationToken, Task<object>>>(
+            taskResultExpr, handlerParam, requestParam, tokenParam);
+
+        var compiled = lambda.Compile();
+
+        // Wrap with exception handling
         return async (handler, request, token) =>
         {
-            Task task;
             try
             {
-                task = (Task?)handleMethod.Invoke(handler, new object[] { request, token })
-                    ?? throw new InvalidOperationException("Handler returned null task");
+                return await compiled(handler, request, token);
             }
-            catch (TargetInvocationException ex)
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
-                // Unwrap the inner exception to preserve the original stack trace
-                throw ex.InnerException ?? ex;
+                throw ex.InnerException;
             }
-
-            try
-            {
-                await task;
-            }
-            catch (TargetInvocationException ex)
-            {
-                // Unwrap the inner exception to preserve the original stack trace
-                throw ex.InnerException ?? ex;
-            }
-
-            // Get result from Task<T> using reflection
-            var resultProperty = task.GetType().GetProperty("Result");
-            if (resultProperty == null)
-                throw new InvalidOperationException("Unable to get Result property from task");
-
-            return resultProperty.GetValue(task) ?? throw new InvalidOperationException("Handler returned null result");
         };
     }
 
-    /// <summary>
-    /// Creates a compiled delegate for pipeline behaviors
-    /// </summary>
-    private static Func<object, object, PipelineNext<object>, CancellationToken, Task<object>> CreateBehaviorDelegate(MethodInfo handleMethod)
+    private static Func<object, object, PipelineNext<object>, CancellationToken, Task<object>> CreateOptimizedBehaviorDelegate(MethodInfo handleMethod)
     {
+        // For behaviors, we'll use a hybrid approach due to the complexity of generic delegate handling
         return async (behavior, request, next, token) =>
         {
             try
             {
-                // Get the expected next delegate type from the behavior's Handle method
                 var parameters = handleMethod.GetParameters();
-                if (parameters.Length < 2)
-                    throw new ArgumentException($"Behavior Handle method must have at least 2 parameters, got {parameters.Length}");
-
-                var nextParameterType = parameters[1].ParameterType; // Should be PipelineNext<TResponse> or Func<Task<TResponse>>
-
-                // Create a wrapper that matches the expected delegate type
+                var nextParameterType = parameters[1].ParameterType;
                 var nextDelegate = CreateTypedNextDelegate(next, nextParameterType);
 
-                Task task;
-                try
-                {
-                    task = (Task?)handleMethod.Invoke(behavior, new object[] { request, nextDelegate, token })
-                        ?? throw new InvalidOperationException("Behavior returned null task");
-                }
-                catch (TargetInvocationException ex)
-                {
-                    // Unwrap the inner exception to preserve the original stack trace
-                    throw ex.InnerException ?? ex;
-                }
-
-                try
-                {
-                    await task;
-                }
-                catch (TargetInvocationException ex)
-                {
-                    // Unwrap the inner exception to preserve the original stack trace
-                    throw ex.InnerException ?? ex;
-                }
-
-                // Get result from Task<T>
-                var resultProperty = task.GetType().GetProperty("Result");
-                if (resultProperty == null)
-                    throw new InvalidOperationException("Unable to get Result property from task");
-
-                return resultProperty.GetValue(task) ?? throw new InvalidOperationException("Behavior returned null result");
+                var task = await InvokeMethodSafely(handleMethod, behavior, new object[] { request, nextDelegate, token });
+                return GetTaskResult(task);
             }
-            catch (TargetInvocationException ex)
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
-                // Unwrap the inner exception to preserve the original stack trace
-                throw ex.InnerException ?? ex;
+                throw ex.InnerException;
             }
         };
     }
 
-    /// <summary>
-    /// Creates a typed next delegate that matches the expected signature (supports both PipelineNext and Func delegates)
-    /// </summary>
-    private static object CreateTypedNextDelegate(PipelineNext<object> next, Type expectedDelegateType)
+    private static Func<object, object, CancellationToken, Task> CreateOptimizedEventHandlerDelegate(MethodInfo handleMethod)
     {
-        // Check if it's a PipelineNext<T> delegate
-        if (expectedDelegateType.IsGenericType && expectedDelegateType.GetGenericTypeDefinition() == typeof(PipelineNext<>))
+        return async (handler, domainEvent, token) =>
         {
-            var responseType = expectedDelegateType.GetGenericArguments()[0];
-            
-            // Create a method that wraps our PipelineNext<object> to return PipelineNext<TResponse>
-            var method = typeof(MediatorExecutionHelper)
-                .GetMethod(nameof(CreateTypedPipelineNextDelegate), BindingFlags.NonPublic | BindingFlags.Static);
-
-            if (method == null)
-                throw new MethodResolutionException(typeof(MediatorExecutionHelper), nameof(CreateTypedPipelineNextDelegate));
-
-            var genericMethod = method.MakeGenericMethod(responseType);
-            var result = genericMethod.Invoke(null, new object[] { next });
-
-            return result ?? throw new InvalidOperationException("Failed to create typed pipeline next delegate");
-        }
-
-        // Check if it's a Func<Task<T>> delegate (backward compatibility)
-        if (expectedDelegateType.IsGenericType && expectedDelegateType.GetGenericTypeDefinition() == typeof(Func<>))
-        {
-            var genericArgs = expectedDelegateType.GetGenericArguments();
-                if (genericArgs.Length != 1)
-                    throw new ArgumentException($"Expected delegate type must have exactly one generic argument, got {genericArgs.Length}");
-
-                var taskType = genericArgs[0]; // Task<TResponse>
-                if (!taskType.IsGenericType || taskType.GetGenericTypeDefinition() != typeof(Task<>))
-                    throw new ArgumentException($"Expected Task<T> type, got {taskType.Name}");
-
-                var responseType = taskType.GetGenericArguments()[0]; // TResponse
-
-                // Create a method that wraps our PipelineNext<object> to return Func<Task<TResponse>>
-                var method = typeof(MediatorExecutionHelper)
-                    .GetMethod(nameof(CreateTypedFuncDelegate), BindingFlags.NonPublic | BindingFlags.Static);
-
-                if (method == null)
-                    throw new MethodResolutionException(typeof(MediatorExecutionHelper), nameof(CreateTypedFuncDelegate));
-
-                var genericMethod = method.MakeGenericMethod(responseType);
-                var result = genericMethod.Invoke(null, new object[] { next });
-
-                return result ?? throw new InvalidOperationException("Failed to create typed func delegate");
+            try
+            {
+                var task = await InvokeMethodSafely(handleMethod, handler, new object[] { domainEvent, token });
+                await task;
             }
-
-            throw new ArgumentException($"Unsupported delegate type: {expectedDelegateType.Name}. Expected PipelineNext<T> or Func<Task<T>>");
+            catch (TargetInvocationException ex) when (ex.InnerException != null)
+            {
+                throw ex.InnerException;
+            }
+        };
     }
 
-    /// <summary>
-    /// Generic helper to create typed PipelineNext delegate
-    /// </summary>
+    #endregion
+
+    #region Common Utilities
+
+    private static PipelineNext<object> CreateWrappedNext<TResponse>(PipelineNext<TResponse> next)
+    {
+        return async () =>
+        {
+            var result = await next();
+            return (object?)result!;
+        };
+    }
+
+    private static async Task<Task> InvokeMethodSafely(MethodInfo method, object instance, object[] parameters)
+    {
+        var result = method.Invoke(instance, parameters);
+        if (result is not Task task)
+            throw new InvalidOperationException($"Method {method.Name} must return a Task");
+
+        await task;
+        return task;
+    }
+
+    private static object GetTaskResult(Task task)
+    {
+        var resultProperty = task.GetType().GetProperty("Result")
+            ?? throw new InvalidOperationException("Unable to get Result property from task");
+
+        return resultProperty.GetValue(task) 
+            ?? throw new InvalidOperationException("Method returned null result");
+    }
+
+    private static Expression CreateTaskResultExpression(Expression taskExpression)
+    {
+        // Create an expression that handles async Task<T> result extraction
+        var awaitMethod = typeof(MediatorExecutionHelper).GetMethod(nameof(AwaitTaskAndGetResult), BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("AwaitTaskAndGetResult method not found");
+
+        return Expression.Call(awaitMethod, taskExpression);
+    }
+
+    private static async Task<object> AwaitTaskAndGetResult(Task task)
+    {
+        await task;
+        return GetTaskResult(task);
+    }
+
+    private static object CreateTypedNextDelegate(PipelineNext<object> next, Type expectedDelegateType)
+    {
+        if (IsPipelineNextType(expectedDelegateType))
+        {
+            return CreatePipelineNextDelegate(next, expectedDelegateType);
+        }
+
+        if (IsFuncTaskType(expectedDelegateType))
+        {
+            return CreateFuncTaskDelegate(next, expectedDelegateType);
+        }
+
+        throw new ArgumentException($"Unsupported delegate type: {expectedDelegateType.Name}. Expected PipelineNext<T> or Func<Task<T>>");
+    }
+
+    private static bool IsPipelineNextType(Type type) =>
+        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(PipelineNext<>);
+
+    private static bool IsFuncTaskType(Type type) =>
+        type.IsGenericType && 
+        type.GetGenericTypeDefinition() == typeof(Func<>) &&
+        type.GetGenericArguments()[0].IsGenericType &&
+        type.GetGenericArguments()[0].GetGenericTypeDefinition() == typeof(Task<>);
+
+    private static object CreatePipelineNextDelegate(PipelineNext<object> next, Type delegateType)
+    {
+        var responseType = delegateType.GetGenericArguments()[0];
+        var method = typeof(MediatorExecutionHelper)
+            .GetMethod(nameof(CreateTypedPipelineNextDelegate), BindingFlags.NonPublic | BindingFlags.Static)
+            ?.MakeGenericMethod(responseType);
+
+        return method?.Invoke(null, new object[] { next })
+            ?? throw new InvalidOperationException("Failed to create typed pipeline next delegate");
+    }
+
+    private static object CreateFuncTaskDelegate(PipelineNext<object> next, Type delegateType)
+    {
+        var responseType = delegateType.GetGenericArguments()[0].GetGenericArguments()[0];
+        var method = typeof(MediatorExecutionHelper)
+            .GetMethod(nameof(CreateTypedFuncDelegate), BindingFlags.NonPublic | BindingFlags.Static)
+            ?.MakeGenericMethod(responseType);
+
+        return method?.Invoke(null, new object[] { next })
+            ?? throw new InvalidOperationException("Failed to create typed func delegate");
+    }
+
     private static PipelineNext<TResponse> CreateTypedPipelineNextDelegate<TResponse>(PipelineNext<object> next)
     {
         return async () =>
@@ -385,9 +399,6 @@ internal static class MediatorExecutionHelper
         };
     }
 
-    /// <summary>
-    /// Generic helper to create typed Func delegate (for backward compatibility)
-    /// </summary>
     private static Func<Task<TResponse>> CreateTypedFuncDelegate<TResponse>(PipelineNext<object> next)
     {
         return async () =>
@@ -397,47 +408,36 @@ internal static class MediatorExecutionHelper
         };
     }
 
-    /// <summary>
-    /// Generic helper to create typed next delegate (deprecated - kept for compatibility)
-    /// </summary>
-    private static Func<Task<TResponse>> CreateTypedNextDelegateGeneric<TResponse>(Func<Task<object>> next)
+    #endregion
+
+    #region Exception Creation Helpers
+
+    private static MethodResolutionException CreateMethodResolutionException(Type handlerType, Type requestType, Type cancellationTokenType)
     {
-        return async () =>
-        {
-            var result = await next();
-            return (TResponse)result;
-        };
+        var exception = new MethodResolutionException(handlerType, HANDLE_METHOD_NAME, new[] { requestType, cancellationTokenType });
+        exception.WithContext("RequestType", requestType.FullName);
+        exception.WithContext("SearchedInterfaces", string.Join(", ", handlerType.GetInterfaces().Select(i => i.Name)));
+        return exception;
     }
 
-    /// <summary>
-    /// Creates a compiled delegate for event handlers
-    /// </summary>
-    private static Func<object, object, CancellationToken, Task> CreateEventHandlerDelegate(MethodInfo handleMethod)
+    private static MethodResolutionException CreateBehaviorMethodResolutionException(Type behaviorType, Type requestType, Type responseType, Type nextDelegateType)
     {
-        // For event handlers, we'll use direct reflection invoke since they return Task (not Task<T>)
-        return async (handler, domainEvent, token) =>
-        {
-            Task task;
-            try
-            {
-                task = (Task?)handleMethod.Invoke(handler, new object[] { domainEvent, token })
-                    ?? throw new InvalidOperationException("Event handler returned null task");
-            }
-            catch (TargetInvocationException ex)
-            {
-                // Unwrap the inner exception to preserve the original stack trace
-                throw ex.InnerException ?? ex;
-            }
-
-            try
-            {
-                await task;
-            }
-            catch (TargetInvocationException ex)
-            {
-                // Unwrap the inner exception to preserve the original stack trace
-                throw ex.InnerException ?? ex;
-            }
-        };
+        var exception = new MethodResolutionException(behaviorType, HANDLE_METHOD_NAME, new[] { requestType, nextDelegateType, typeof(CancellationToken) });
+        exception.WithContext("RequestType", requestType.FullName);
+        exception.WithContext("ResponseType", responseType.FullName);
+        exception.WithContext("NextDelegateType", nextDelegateType.FullName);
+        exception.WithContext("SearchedInterfaces", string.Join(", ", behaviorType.GetInterfaces().Select(i => i.Name)));
+        return exception;
     }
+
+    private static MethodResolutionException CreateEventMethodResolutionException(Type handlerType, Type eventType)
+    {
+        var exception = new MethodResolutionException(handlerType, HANDLE_METHOD_NAME, new[] { eventType, typeof(CancellationToken) });
+        exception.WithContext("EventType", eventType.FullName);
+        exception.WithContext("ExpectedReturnType", typeof(Task).FullName);
+        exception.WithContext("SearchedInterfaces", string.Join(", ", handlerType.GetInterfaces().Select(i => i.Name)));
+        return exception;
+    }
+
+    #endregion
 }
