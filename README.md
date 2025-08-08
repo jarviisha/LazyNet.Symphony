@@ -1,14 +1,14 @@
 # Symphony
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![.NET](https://img.shields.io/badge/.NET-9.0-purple.svg)](https://dotnet.microsoft.com/download/dotnet/9.0)
+[![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![NuGet](https://img.shields.io/nuget/v/LazyNet.Symphony.svg)](https://www.nuget.org/packages/LazyNet.Symphony/)
 
 A high-performance, lightweight implementation of the Mediator pattern for .NET applications, providing a simple interface to handle requests, commands, queries, and domain events with advanced pipeline support.
 
 > **⚠️ Alpha Release Warning**
 > 
-> This is an **alpha version (1.0.0-alpha.2)** of Symphony. While the core functionality is stable and tested, the API may still change in future releases. 
+> This is an **alpha version (1.0.0-alpha.3)** of Symphony. While the core functionality is stable and tested, the API may still change in future releases. 
 > 
 > - ✅ Safe for **testing** and **evaluation**
 > - ⚠️ **Not recommended** for production use yet
@@ -49,9 +49,9 @@ public class UsersController : ControllerBase
 
 ## 📋 Prerequisites
 
-- **.NET 9.0** or later
+- **.NET 8.0** or later
 - **Microsoft.Extensions.DependencyInjection** (included)
-- Any **.NET 9.0 compatible** project (Web API, Console, etc.)
+- Any **.NET 8.0 compatible** project (Web API, Console, etc.)
 
 ## ✨ Features
 
@@ -67,7 +67,7 @@ public class UsersController : ControllerBase
 
 ### Package Manager Console
 ```powershell
-Install-Package LazyNet.Symphony -Version 1.0.0-alpha.2
+Install-Package LazyNet.Symphony -Version 1.0.0-alpha.3
 ```
 
 ### .NET CLI
@@ -77,7 +77,7 @@ dotnet add package LazyNet.Symphony --prerelease
 
 ### PackageReference
 ```xml
-<PackageReference Include="LazyNet.Symphony" Version="1.0.0-alpha.2" />
+<PackageReference Include="LazyNet.Symphony" Version="1.0.0-alpha.3" />
 ```
 
 ## 🚀 Quick Start
@@ -349,7 +349,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Inspired by [MediatR](https://github.com/jbogard/MediatR) with focus on performance optimization
-- Built with modern .NET 9.0 features and best practices
+- Built with modern .NET 8.0 features and best practices
 - Thanks to all contributors and the .NET community
 
 ## 📞 Support
