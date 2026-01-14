@@ -51,7 +51,8 @@ public class Mediator : IMediator
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="serviceProvider"/> is null.</exception>
     public Mediator(IServiceProvider serviceProvider)
     {
-        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+        _serviceProvider = serviceProvider;
     }
 
     /// <summary>
@@ -226,7 +227,7 @@ public class Mediator : IMediator
         // behaviors[n-1] should execute last before handler, so it should be the innermost wrapper
         for (int i = behaviors.Length - 1; i >= 0; i--)
         {
-            pipeline = CreateBehaviorPipeline<TResponse>(behaviors[i], request, pipeline, cancellationToken);
+            pipeline = CreateBehaviorPipeline(behaviors[i], request, pipeline, cancellationToken);
         }
 
         return pipeline;
