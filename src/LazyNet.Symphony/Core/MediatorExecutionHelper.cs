@@ -335,8 +335,15 @@ internal static class MediatorExecutionHelper
         var resultProperty = task.GetType().GetProperty("Result")
             ?? throw new InvalidOperationException("Unable to get Result property from task");
 
-        return resultProperty.GetValue(task) 
-            ?? throw new InvalidOperationException("Method returned null result");
+        var result = resultProperty.GetValue(task);
+
+        // Only throw for null reference types, not for default value types (e.g., 0 for int, false for bool)
+        if (result is null && !resultProperty.PropertyType.IsValueType)
+        {
+            throw new InvalidOperationException("Method returned null result");
+        }
+
+        return result!;
     }
 
     private static Expression CreateTaskResultExpression(Expression taskExpression)
