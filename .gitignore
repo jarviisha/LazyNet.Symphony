@@ -19,6 +19,7 @@ bld/
 .vs/
 wwwroot/
 
+# User-specific files
 CLAUDE.md
 IMPROVEMENTS.md
 
