@@ -98,13 +98,14 @@ public class ServiceCollectionExtensionsTests
 
         // Assert
         var serviceProvider = _services.BuildServiceProvider();
-        
+
         var mediator = serviceProvider.GetService<IMediator>();
         mediator.Should().NotBeNull();
 
-        // Verify the handler is registered with correct lifetime
+        // Verify the handler is registered with correct lifetime (default is Scoped)
         var descriptor = _services.FirstOrDefault(x => x.ServiceType == typeof(IRequestHandler<TestServiceRequest, string>));
-        descriptor?.Lifetime.Should().Be(ServiceLifetime.Singleton);
+        descriptor.Should().NotBeNull();
+        descriptor?.Lifetime.Should().Be(ServiceLifetime.Scoped);
     }
 
     [Fact]

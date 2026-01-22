@@ -431,37 +431,98 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Helper method that processes MediatorOptions and registers all explicitly configured handlers
-    /// with their specified or default lifetimes.
+    /// Helper method that processes MediatorOptions and registers all configured handlers
+    /// including assembly scanning and explicitly registered handlers.
     /// </summary>
     /// <param name="services">The service collection to add services to.</param>
     /// <param name="options">The mediator options containing handler configurations.</param>
     /// <remarks>
-    /// This method iterates through all explicitly registered handlers in the options and registers them
-    /// using either their specified lifetime or the appropriate default lifetime configured in the options.
-    /// It delegates the actual registration to <see cref="RegisterExplicitHandler"/> method.
+    /// This method:
+    /// <list type="bullet">
+    /// <item><description>Scans configured assemblies for handlers using default lifetimes</description></item>
+    /// <item><description>Registers explicitly configured handlers with their specified or default lifetimes</description></item>
+    /// </list>
     /// </remarks>
     private static void RegisterExplicitHandlers(IServiceCollection services, MediatorOptions options)
     {
-        // Register request handlers
+        // First, scan assemblies for handlers (if any assemblies configured)
+        foreach (var assembly in options.Assemblies)
+        {
+            RegisterHandlersFromAssembly(services, assembly, options);
+        }
+
+        // Then, register explicit request handlers (these may override assembly-scanned handlers)
         foreach (var (handlerType, specifiedLifetime) in options.ExplicitRequestHandlers)
         {
             var lifetime = specifiedLifetime ?? options.DefaultRequestHandlerLifetime;
             RegisterExplicitHandler(services, handlerType, lifetime);
         }
 
-        // Register event handlers
+        // Register explicit event handlers
         foreach (var (handlerType, specifiedLifetime) in options.ExplicitEventHandlers)
         {
             var lifetime = specifiedLifetime ?? options.DefaultEventHandlerLifetime;
             RegisterExplicitHandler(services, handlerType, lifetime);
         }
 
-        // Register pipeline behaviors
+        // Register explicit pipeline behaviors
         foreach (var (handlerType, specifiedLifetime) in options.ExplicitPipelineBehaviors)
         {
             var lifetime = specifiedLifetime ?? options.DefaultPipelineBehaviorLifetime;
             RegisterExplicitHandler(services, handlerType, lifetime);
+        }
+    }
+
+    /// <summary>
+    /// Scans an assembly and registers all handlers with the configured default lifetimes.
+    /// </summary>
+    /// <param name="services">The service collection to add services to.</param>
+    /// <param name="assembly">The assembly to scan for handlers.</param>
+    /// <param name="options">The mediator options containing default lifetime configurations.</param>
+    private static void RegisterHandlersFromAssembly(IServiceCollection services, Assembly assembly, MediatorOptions options)
+    {
+        var types = assembly.GetTypes()
+            .Where(t => !t.IsAbstract && !t.IsInterface)
+            .ToList();
+
+        foreach (var type in types)
+        {
+            // Register request handlers
+            var requestHandlerInterfaces = type.GetInterfaces()
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRequestHandler<,>))
+                .ToList();
+
+            foreach (var @interface in requestHandlerInterfaces)
+            {
+                services.Add(new ServiceDescriptor(@interface, type, options.DefaultRequestHandlerLifetime));
+            }
+
+            // Register event handlers
+            var eventHandlerInterfaces = type.GetInterfaces()
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEventHandler<>))
+                .ToList();
+
+            foreach (var @interface in eventHandlerInterfaces)
+            {
+                services.Add(new ServiceDescriptor(@interface, type, options.DefaultEventHandlerLifetime));
+            }
+
+            // Register pipeline behaviors
+            var behaviorInterfaces = type.GetInterfaces()
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IPipelineBehavior<,>))
+                .ToList();
+
+            foreach (var @interface in behaviorInterfaces)
+            {
+                if (type.IsGenericTypeDefinition)
+                {
+                    services.Add(new ServiceDescriptor(typeof(IPipelineBehavior<,>), type, options.DefaultPipelineBehaviorLifetime));
+                }
+                else
+                {
+                    services.Add(new ServiceDescriptor(@interface, type, options.DefaultPipelineBehaviorLifetime));
+                }
+            }
         }
     }
 }
