@@ -73,6 +73,7 @@ public class Mediator : IMediator
     public async Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var requestType = request.GetType();
         
@@ -116,6 +117,7 @@ public class Mediator : IMediator
         where TEvent : class
     {
         ArgumentNullException.ThrowIfNull(@event);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var eventType = @event.GetType();
         var handlerType = GetOrCreateEventHandlerType(eventType);
@@ -256,14 +258,15 @@ public class Mediator : IMediator
     /// Sequential execution is used for predictable execution order and better resource management.
     /// </remarks>
     private async Task ExecuteEventHandlers<TEvent>(
-        object[] handlers, 
-        TEvent @event, 
+        object[] handlers,
+        TEvent @event,
         CancellationToken cancellationToken)
         where TEvent : class
     {
         // Execute handlers sequentially in registration order (FIFO)
         foreach (var handler in handlers)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             await MediatorExecutionHelper.ExecuteEventHandler(handler, @event, cancellationToken);
         }
     }
