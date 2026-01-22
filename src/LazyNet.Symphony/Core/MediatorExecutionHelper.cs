@@ -54,7 +54,7 @@ internal static class MediatorExecutionHelper
             return CreateOptimizedHandlerDelegate(handleMethod);
         });
 
-        var result = await compiledHandler(handler, request, cancellationToken);
+        var result = await compiledHandler(handler, request, cancellationToken).ConfigureAwait(false);
         return (TResponse)result;
     }
 
@@ -82,7 +82,7 @@ internal static class MediatorExecutionHelper
 
         // Wrap the typed next delegate
         var wrappedNext = CreateWrappedNext(next);
-        var result = await compiledBehavior(behavior, request, wrappedNext, cancellationToken);
+        var result = await compiledBehavior(behavior, request, wrappedNext, cancellationToken).ConfigureAwait(false);
         return (TResponse)result;
     }
 
@@ -106,7 +106,7 @@ internal static class MediatorExecutionHelper
             return CreateOptimizedEventHandlerDelegate(handleMethod);
         });
 
-        await compiledHandler(handler, domainEvent, cancellationToken);
+        await compiledHandler(handler, domainEvent, cancellationToken).ConfigureAwait(false);
     }
 
     #region Method Resolution with Caching
@@ -261,7 +261,7 @@ internal static class MediatorExecutionHelper
         {
             try
             {
-                return await compiled(handler, request, token);
+                return await compiled(handler, request, token).ConfigureAwait(false);
             }
             catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
@@ -281,7 +281,7 @@ internal static class MediatorExecutionHelper
                 var nextParameterType = parameters[1].ParameterType;
                 var nextDelegate = CreateTypedNextDelegate(next, nextParameterType);
 
-                var task = await InvokeMethodSafely(handleMethod, behavior, new object[] { request, nextDelegate, token });
+                var task = await InvokeMethodSafely(handleMethod, behavior, new object[] { request, nextDelegate, token }).ConfigureAwait(false);
                 return GetTaskResult(task);
             }
             catch (TargetInvocationException ex) when (ex.InnerException != null)
@@ -297,8 +297,8 @@ internal static class MediatorExecutionHelper
         {
             try
             {
-                var task = await InvokeMethodSafely(handleMethod, handler, new object[] { domainEvent, token });
-                await task;
+                var task = await InvokeMethodSafely(handleMethod, handler, new object[] { domainEvent, token }).ConfigureAwait(false);
+                await task.ConfigureAwait(false);
             }
             catch (TargetInvocationException ex) when (ex.InnerException != null)
             {
@@ -315,7 +315,7 @@ internal static class MediatorExecutionHelper
     {
         return async () =>
         {
-            var result = await next();
+            var result = await next().ConfigureAwait(false);
             return (object?)result!;
         };
     }
@@ -326,7 +326,7 @@ internal static class MediatorExecutionHelper
         if (result is not Task task)
             throw new InvalidOperationException($"Method {method.Name} must return a Task");
 
-        await task;
+        await task.ConfigureAwait(false);
         return task;
     }
 
@@ -357,7 +357,7 @@ internal static class MediatorExecutionHelper
 
     private static async Task<object> AwaitTaskAndGetResult(Task task)
     {
-        await task;
+        await task.ConfigureAwait(false);
         return GetTaskResult(task);
     }
 
@@ -411,7 +411,7 @@ internal static class MediatorExecutionHelper
     {
         return async () =>
         {
-            var result = await next();
+            var result = await next().ConfigureAwait(false);
             return (TResponse)result;
         };
     }
@@ -420,7 +420,7 @@ internal static class MediatorExecutionHelper
     {
         return async () =>
         {
-            var result = await next();
+            var result = await next().ConfigureAwait(false);
             return (TResponse)result;
         };
     }

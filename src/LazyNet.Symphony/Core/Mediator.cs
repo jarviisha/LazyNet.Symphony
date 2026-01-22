@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using LazyNet.Symphony.Exceptions;
 using LazyNet.Symphony.Interfaces;
-
 
 namespace LazyNet.Symphony.Core;
 
@@ -24,7 +26,12 @@ public class Mediator : IMediator
     /// Service provider used for dependency injection and service resolution.
     /// </summary>
     private readonly IServiceProvider _serviceProvider;
-    
+
+    /// <summary>
+    /// Logger for diagnostic information. Uses NullLogger if no logger is provided.
+    /// </summary>
+    private readonly ILogger<Mediator> _logger;
+
     /// <summary>
     /// Cache for frequently used generic handler types to avoid repeated MakeGenericType calls
     /// and improve performance during request processing.
@@ -38,7 +45,7 @@ public class Mediator : IMediator
     /// Key is a ValueTuple of (RequestType, ResponseType) for efficient lookups.
     /// </summary>
     private static readonly ConcurrentDictionary<(Type RequestType, Type ResponseType), Type> _behaviorTypeCache = new();
-    
+
     /// <summary>
     /// Cache for frequently used generic event handler types to avoid repeated MakeGenericType calls
     /// and improve performance during event publishing.
@@ -49,11 +56,13 @@ public class Mediator : IMediator
     /// Initializes a new instance of the <see cref="Mediator"/> class.
     /// </summary>
     /// <param name="serviceProvider">The service provider for dependency injection and service resolution.</param>
+    /// <param name="logger">Optional logger for diagnostic information. If null, logging is disabled.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="serviceProvider"/> is null.</exception>
-    public Mediator(IServiceProvider serviceProvider)
+    public Mediator(IServiceProvider serviceProvider, ILogger<Mediator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(serviceProvider);
         _serviceProvider = serviceProvider;
+        _logger = logger ?? NullLogger<Mediator>.Instance;
     }
 
     /// <summary>
@@ -76,23 +85,36 @@ public class Mediator : IMediator
         cancellationToken.ThrowIfCancellationRequested();
 
         var requestType = request.GetType();
-        
+        var stopwatch = Stopwatch.StartNew();
+
+        _logger.LogDebug("Processing request {RequestType}", requestType.Name);
+
         // Use cached generic types for better performance
         var handlerType = GetOrCreateHandlerType(requestType, typeof(TResponse));
         var behaviorType = GetOrCreateBehaviorType(requestType, typeof(TResponse));
-        
+
         var handler = _serviceProvider.GetService(handlerType);
         if (handler == null)
         {
+            _logger.LogError("No handler found for request {RequestType}", requestType.Name);
             throw new HandlerNotFoundException(requestType, handlerType)
                 .WithContext("RequestInstance", request.ToString());
         }
 
         var behaviors = GetValidBehaviors(behaviorType);
 
+        _logger.LogDebug("Executing request {RequestType} with {BehaviorCount} behaviors",
+            requestType.Name, behaviors.Length);
+
         // Build and execute pipeline
         var pipeline = BuildPipeline<TResponse>(handler, request, behaviors, cancellationToken);
-        return await pipeline();
+        var result = await pipeline().ConfigureAwait(false);
+
+        stopwatch.Stop();
+        _logger.LogDebug("Request {RequestType} completed in {ElapsedMs}ms",
+            requestType.Name, stopwatch.ElapsedMilliseconds);
+
+        return result;
     }
 
     /// <summary>
@@ -120,13 +142,28 @@ public class Mediator : IMediator
         cancellationToken.ThrowIfCancellationRequested();
 
         var eventType = @event.GetType();
+        var stopwatch = Stopwatch.StartNew();
+
+        _logger.LogDebug("Publishing event {EventType}", eventType.Name);
+
         var handlerType = GetOrCreateEventHandlerType(eventType);
-        
+
         var handlers = GetValidEventHandlers(handlerType);
-        if (handlers.Length == 0) return; // No handlers registered
+        if (handlers.Length == 0)
+        {
+            _logger.LogDebug("No handlers registered for event {EventType}", eventType.Name);
+            return;
+        }
+
+        _logger.LogDebug("Executing {HandlerCount} handlers for event {EventType}",
+            handlers.Length, eventType.Name);
 
         // Execute handlers sequentially in registration order (FIFO)
-        await ExecuteEventHandlers(handlers, @event, cancellationToken);
+        await ExecuteEventHandlers(handlers, @event, cancellationToken).ConfigureAwait(false);
+
+        stopwatch.Stop();
+        _logger.LogDebug("Event {EventType} published to {HandlerCount} handlers in {ElapsedMs}ms",
+            eventType.Name, handlers.Length, stopwatch.ElapsedMilliseconds);
     }
 
     /// <summary>
@@ -267,7 +304,7 @@ public class Mediator : IMediator
         foreach (var handler in handlers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await MediatorExecutionHelper.ExecuteEventHandler(handler, @event, cancellationToken);
+            await MediatorExecutionHelper.ExecuteEventHandler(handler, @event, cancellationToken).ConfigureAwait(false);
         }
     }
 }
