@@ -24,9 +24,10 @@ internal static class MediatorExecutionHelper
     private const int EVENT_HANDLER_PARAMETER_COUNT = 2;
 
     // Cache for compiled handler delegates
-    private static readonly ConcurrentDictionary<Type, Func<object, object, CancellationToken, Task<object>>> HandlerCache = new();
-    private static readonly ConcurrentDictionary<Type, Func<object, object, PipelineNext<object>, CancellationToken, Task<object>>> BehaviorCache = new();
-    private static readonly ConcurrentDictionary<Type, Func<object, object, CancellationToken, Task>> EventHandlerCache = new();
+    // Key includes both handler type and request/event type to handle polymorphic scenarios correctly
+    private static readonly ConcurrentDictionary<(Type HandlerType, Type RequestType), Func<object, object, CancellationToken, Task<object>>> HandlerCache = new();
+    private static readonly ConcurrentDictionary<(Type BehaviorType, Type RequestType), Func<object, object, PipelineNext<object>, CancellationToken, Task<object>>> BehaviorCache = new();
+    private static readonly ConcurrentDictionary<(Type HandlerType, Type EventType), Func<object, object, CancellationToken, Task>> EventHandlerCache = new();
 
     // Cache for method resolution to avoid repeated reflection
     private static readonly ConcurrentDictionary<(Type HandlerType, Type RequestType), MethodInfo> MethodCache = new();
@@ -42,11 +43,14 @@ internal static class MediatorExecutionHelper
         ArgumentNullException.ThrowIfNull(request);
 
         var handlerType = handler.GetType();
+        var requestType = request.GetType();
 
         // Get or create cached compiled delegate
-        var compiledHandler = HandlerCache.GetOrAdd(handlerType, type =>
+        // Key includes both handler type and request type to handle polymorphic scenarios correctly
+        var cacheKey = (HandlerType: handlerType, RequestType: requestType);
+        var compiledHandler = HandlerCache.GetOrAdd(cacheKey, key =>
         {
-            var handleMethod = GetCachedHandleMethod(type, request.GetType());
+            var handleMethod = GetCachedHandleMethod(key.HandlerType, key.RequestType);
             return CreateOptimizedHandlerDelegate(handleMethod);
         });
 
@@ -65,11 +69,14 @@ internal static class MediatorExecutionHelper
         ArgumentNullException.ThrowIfNull(next);
 
         var behaviorType = behavior.GetType();
+        var requestType = request.GetType();
 
         // Get or create cached compiled delegate
-        var compiledBehavior = BehaviorCache.GetOrAdd(behaviorType, type =>
+        // Key includes both behavior type and request type to handle polymorphic scenarios correctly
+        var cacheKey = (BehaviorType: behaviorType, RequestType: requestType);
+        var compiledBehavior = BehaviorCache.GetOrAdd(cacheKey, key =>
         {
-            var handleMethod = GetCachedBehaviorHandleMethod(type, request.GetType(), typeof(TResponse));
+            var handleMethod = GetCachedBehaviorHandleMethod(key.BehaviorType, key.RequestType, typeof(TResponse));
             return CreateOptimizedBehaviorDelegate(handleMethod);
         });
 
@@ -88,11 +95,14 @@ internal static class MediatorExecutionHelper
         ArgumentNullException.ThrowIfNull(domainEvent);
 
         var handlerType = handler.GetType();
+        var eventType = domainEvent.GetType();
 
         // Get or create cached compiled delegate
-        var compiledHandler = EventHandlerCache.GetOrAdd(handlerType, type =>
+        // Key includes both handler type and event type to handle polymorphic scenarios correctly
+        var cacheKey = (HandlerType: handlerType, EventType: eventType);
+        var compiledHandler = EventHandlerCache.GetOrAdd(cacheKey, key =>
         {
-            var handleMethod = GetCachedEventHandleMethod(type, domainEvent.GetType());
+            var handleMethod = GetCachedEventHandleMethod(key.HandlerType, key.EventType);
             return CreateOptimizedEventHandlerDelegate(handleMethod);
         });
 

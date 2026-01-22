@@ -14,10 +14,13 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
-# Visual Studio 2015/2017 cache/options directory
+.claude/
+.vscode/
 .vs/
-# Uncomment if you have tasks that create the project's static files in wwwroot
-#wwwroot/
+wwwroot/
+
+CLAUDE.md
+IMPROVEMENTS.md
 
 # Visual Studio 2017 auto generated files
 Generated\ Files/
