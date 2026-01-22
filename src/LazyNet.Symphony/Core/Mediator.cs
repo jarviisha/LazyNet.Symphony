@@ -28,15 +28,16 @@ public class Mediator : IMediator
     /// <summary>
     /// Cache for frequently used generic handler types to avoid repeated MakeGenericType calls
     /// and improve performance during request processing.
+    /// Key is a ValueTuple of (RequestType, ResponseType) for efficient lookups.
     /// </summary>
-    // Cache for frequently used generic types to avoid repeated MakeGenericType calls
-    private static readonly ConcurrentDictionary<Type, Type> _handlerTypeCache = new();
-    
+    private static readonly ConcurrentDictionary<(Type RequestType, Type ResponseType), Type> _handlerTypeCache = new();
+
     /// <summary>
     /// Cache for frequently used generic behavior types to avoid repeated MakeGenericType calls
     /// and improve performance during pipeline construction.
+    /// Key is a ValueTuple of (RequestType, ResponseType) for efficient lookups.
     /// </summary>
-    private static readonly ConcurrentDictionary<Type, Type> _behaviorTypeCache = new();
+    private static readonly ConcurrentDictionary<(Type RequestType, Type ResponseType), Type> _behaviorTypeCache = new();
     
     /// <summary>
     /// Cache for frequently used generic event handler types to avoid repeated MakeGenericType calls
@@ -127,23 +128,25 @@ public class Mediator : IMediator
     }
 
     /// <summary>
-    /// Gets or creates cached handler type for better performance
+    /// Gets or creates cached handler type for better performance.
+    /// Uses ValueTuple as key to avoid MakeGenericType overhead for cache lookups.
     /// </summary>
     private static Type GetOrCreateHandlerType(Type requestType, Type responseType)
     {
-        var key = CreateTypeKey(requestType, responseType);
-        return _handlerTypeCache.GetOrAdd(key, _ => 
-            typeof(IRequestHandler<,>).MakeGenericType(requestType, responseType));
+        var key = (RequestType: requestType, ResponseType: responseType);
+        return _handlerTypeCache.GetOrAdd(key, k =>
+            typeof(IRequestHandler<,>).MakeGenericType(k.RequestType, k.ResponseType));
     }
 
     /// <summary>
-    /// Gets or creates cached behavior type for better performance
+    /// Gets or creates cached behavior type for better performance.
+    /// Uses ValueTuple as key to avoid MakeGenericType overhead for cache lookups.
     /// </summary>
     private static Type GetOrCreateBehaviorType(Type requestType, Type responseType)
     {
-        var key = CreateTypeKey(requestType, responseType);
-        return _behaviorTypeCache.GetOrAdd(key, _ => 
-            typeof(IPipelineBehavior<,>).MakeGenericType(requestType, responseType));
+        var key = (RequestType: requestType, ResponseType: responseType);
+        return _behaviorTypeCache.GetOrAdd(key, k =>
+            typeof(IPipelineBehavior<,>).MakeGenericType(k.RequestType, k.ResponseType));
     }
 
     /// <summary>
@@ -151,18 +154,8 @@ public class Mediator : IMediator
     /// </summary>
     private static Type GetOrCreateEventHandlerType(Type eventType)
     {
-        return _eventHandlerTypeCache.GetOrAdd(eventType, type => 
+        return _eventHandlerTypeCache.GetOrAdd(eventType, type =>
             typeof(IEventHandler<>).MakeGenericType(type));
-    }
-
-    /// <summary>
-    /// Creates a composite type key for caching
-    /// </summary>
-    private static Type CreateTypeKey(Type requestType, Type responseType)
-    {
-        // Use a simple approach - create a runtime type that represents the combination
-        // This is more memory efficient than creating strings
-        return typeof(Tuple<,>).MakeGenericType(requestType, responseType);
     }
 
     /// <summary>
