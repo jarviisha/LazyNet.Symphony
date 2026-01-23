@@ -163,6 +163,31 @@ public class MediatorExecutionHelperTests
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("Test exception from event handler");
     }
+
+    [Fact]
+    public void ClearCache_ShouldNotThrow()
+    {
+        // Act & Assert - should not throw
+        var act = MediatorExecutionHelper.ClearCache;
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task ClearCache_ShouldAllowReexecution()
+    {
+        // Arrange
+        var request = new TestExecutionRequest { Data = "test" };
+        var handler = new TestExecutionRequestHandler();
+
+        // Act - Execute, clear cache, execute again
+        var result1 = await MediatorExecutionHelper.ExecuteHandler<string>(handler, request, CancellationToken.None);
+        MediatorExecutionHelper.ClearCache();
+        var result2 = await MediatorExecutionHelper.ExecuteHandler<string>(handler, request, CancellationToken.None);
+
+        // Assert
+        result1.Should().Be("Handled: test");
+        result2.Should().Be("Handled: test");
+    }
 }
 
 // Test classes for MediatorExecutionHelper tests
