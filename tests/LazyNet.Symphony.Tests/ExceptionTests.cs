@@ -312,7 +312,7 @@ public class ExceptionTests
 
         // Assert
         result.Should().BeSameAs(exception);
-        exception.Context.Should().HaveCount(5); // 2 auto-added + 3 manual
+        exception.Context.Should().HaveCount(4); // 1 auto-added (RequestType) + 3 manual
         exception.Context["Key1"].Should().Be("Value1");
         exception.Context["Key2"].Should().Be(42);
         exception.Context["Key3"].Should().Be(true);
@@ -350,14 +350,181 @@ public class ExceptionTests
     public void SymphonyException_ToString_WithoutContext_ShouldNotIncludeContextSection()
     {
         // Arrange
-        var exception = new HandlerNotFoundException(typeof(TestRequest));
-        exception.Context.Clear(); // Clear auto-added context
+        var exception = new TestExceptionEmpty("Test message");
 
         // Act
         var result = exception.ToString();
 
         // Assert
-        result.Should().NotContain("Context:");
+        Assert.DoesNotContain("Context:", result);
+        result.Should().Contain("[TEST_ERROR]");
+    }
+
+    [Fact]
+    public void SymphonyException_WithContext_ShouldThrowWhenKeyIsNull()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => exception.WithContext(null!, "value"));
+    }
+
+    [Fact]
+    public void SymphonyException_WithContext_ShouldThrowWhenKeyIsEmpty()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+
+        // Act & Assert
+        Assert.Throws<ArgumentException>(() => exception.WithContext("", "value"));
+    }
+
+    [Fact]
+    public void SymphonyException_WithContext_ShouldThrowWhenKeyIsWhitespace()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+
+        // Act & Assert
+        Assert.Throws<ArgumentException>(() => exception.WithContext("   ", "value"));
+    }
+
+    [Fact]
+    public void SymphonyException_WithContext_Generic_ShouldAddContextWithTypeParameter()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+
+        // Act
+        exception.WithContext<int>("IntValue", 42);
+        exception.WithContext<bool>("BoolValue", true);
+
+        // Assert
+        exception.Context["IntValue"].Should().Be(42);
+        exception.Context["BoolValue"].Should().Be(true);
+    }
+
+    [Fact]
+    public void SymphonyException_Seal_ShouldPreventFurtherModifications()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+        exception.WithContext("Key1", "Value1");
+
+        // Act
+        exception.Seal();
+
+        // Assert
+        Assert.Throws<InvalidOperationException>(() => exception.WithContext("Key2", "Value2"));
+    }
+
+    [Fact]
+    public void SymphonyException_ToStructuredLog_ShouldReturnAllData()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+        exception.WithContext("CustomKey", "CustomValue");
+
+        // Act
+        var log = exception.ToStructuredLog();
+
+        // Assert
+        log.Should().ContainKey("ErrorCode");
+        log.Should().ContainKey("Message");
+        log.Should().ContainKey("StackTrace");
+        log.Should().ContainKey("Context");
+        log.Should().ContainKey("ResolutionHint");
+        log["ErrorCode"].Should().Be("SYMPHONY_HANDLER_NOT_FOUND");
+    }
+
+    [Fact]
+    public void SymphonyException_ToString_ShouldIncludeResolutionHint()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest), typeof(TestRequestHandler));
+
+        // Act
+        var result = exception.ToString();
+
+        // Assert
+        result.Should().Contain("Resolution:");
+        result.Should().Contain("services.AddRequestHandler");
+    }
+
+    [Fact]
+    public void HandlerNotFoundException_ShouldHaveResolutionHint()
+    {
+        // Arrange
+        var exception = new HandlerNotFoundException(typeof(TestRequest));
+
+        // Assert
+        exception.ResolutionHint.Should().NotBeNullOrWhiteSpace();
+        exception.ResolutionHint.Should().Contain("TestRequest");
+    }
+
+    [Fact]
+    public void MethodResolutionException_ShouldHaveResolutionHint()
+    {
+        // Arrange
+        var exception = new MethodResolutionException(typeof(TestRequestHandler), "Handle");
+
+        // Assert
+        exception.ResolutionHint.Should().NotBeNullOrWhiteSpace();
+        exception.ResolutionHint.Should().Contain("Handle");
+    }
+
+    [Fact]
+    public void HandlerValidationException_ShouldHaveResolutionHint()
+    {
+        // Arrange
+        var exception = new HandlerValidationException(typeof(TestRequestHandler), "Rule", "Message");
+
+        // Assert
+        exception.ResolutionHint.Should().NotBeNullOrWhiteSpace();
+        exception.ResolutionHint.Should().Contain("TestRequestHandler");
+    }
+
+    [Fact]
+    public void HandlerNotFoundException_ShouldThrowWhenRequestTypeIsNull()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new HandlerNotFoundException(null!));
+    }
+
+    [Fact]
+    public void MethodResolutionException_ShouldThrowWhenTargetTypeIsNull()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new MethodResolutionException(null!, "Handle"));
+    }
+
+    [Fact]
+    public void MethodResolutionException_ShouldThrowWhenMethodNameIsNull()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new MethodResolutionException(typeof(TestRequestHandler), null!));
+    }
+
+    [Fact]
+    public void HandlerValidationException_ShouldThrowWhenHandlerTypeIsNull()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new HandlerValidationException(null!, "Rule", "Message"));
+    }
+
+    [Fact]
+    public void HandlerValidationException_ShouldThrowWhenValidationRuleIsNull()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new HandlerValidationException(typeof(TestRequestHandler), null!, "Message"));
+    }
+
+    [Fact]
+    public void HandlerValidationException_ShouldThrowWhenMessageIsNull()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => new HandlerValidationException(typeof(TestRequestHandler), "Rule", null!));
     }
 
     #endregion
@@ -371,6 +538,15 @@ public class ExceptionTests
         public Task<string> Handle(TestRequest request, CancellationToken cancellationToken = default)
         {
             return Task.FromResult("Result");
+        }
+    }
+
+    public class TestExceptionEmpty : SymphonyException
+    {
+        public override string ErrorCode => "TEST_ERROR";
+
+        public TestExceptionEmpty(string message) : base(message)
+        {
         }
     }
 

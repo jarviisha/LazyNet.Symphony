@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Text;
+
 namespace LazyNet.Symphony.Exceptions;
 
 /// <summary>
@@ -36,15 +39,23 @@ namespace LazyNet.Symphony.Exceptions;
 /// </example>
 public abstract class SymphonyException : Exception
 {
+    private readonly ConcurrentDictionary<string, object?> _context = new();
+    private volatile bool _isSealed;
+
     /// <summary>
     /// Gets the error code associated with this exception
     /// </summary>
     public abstract string ErrorCode { get; }
 
     /// <summary>
-    /// Gets additional context data for this exception
+    /// Gets additional context data for this exception (thread-safe, read-only view)
     /// </summary>
-    public Dictionary<string, object?> Context { get; } = new();
+    public IReadOnlyDictionary<string, object?> Context => _context;
+
+    /// <summary>
+    /// Gets a hint on how to resolve this exception (optional)
+    /// </summary>
+    public virtual string? ResolutionHint => null;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SymphonyException"/> class with a specified error message.
@@ -66,28 +77,106 @@ public abstract class SymphonyException : Exception
     /// <summary>
     /// Adds context data to the exception
     /// </summary>
-    /// <param name="key">The context key</param>
+    /// <param name="key">The context key (cannot be null or whitespace)</param>
     /// <param name="value">The context value</param>
     /// <returns>This exception instance for fluent chaining</returns>
+    /// <exception cref="ArgumentException">Thrown when key is null or whitespace</exception>
+    /// <exception cref="InvalidOperationException">Thrown when exception context is sealed</exception>
     public SymphonyException WithContext(string key, object? value)
     {
-        Context[key] = value;
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        if (_isSealed)
+            throw new InvalidOperationException("Cannot modify context after exception is sealed");
+
+        _context[key] = value;
         return this;
     }
 
     /// <summary>
-    /// Gets a formatted error message including error code and context
+    /// Adds context data to the exception with type safety (avoids boxing for value types when possible)
+    /// </summary>
+    /// <typeparam name="T">The type of the context value</typeparam>
+    /// <param name="key">The context key (cannot be null or whitespace)</param>
+    /// <param name="value">The context value</param>
+    /// <returns>This exception instance for fluent chaining</returns>
+    /// <exception cref="ArgumentException">Thrown when key is null or whitespace</exception>
+    /// <exception cref="InvalidOperationException">Thrown when exception context is sealed</exception>
+    public SymphonyException WithContext<T>(string key, T value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        if (_isSealed)
+            throw new InvalidOperationException("Cannot modify context after exception is sealed");
+
+        _context[key] = value;
+        return this;
+    }
+
+    /// <summary>
+    /// Helper method to add type information to context (skips null types)
+    /// </summary>
+    /// <param name="key">The context key</param>
+    /// <param name="type">The type to add (null values are skipped)</param>
+    /// <returns>This exception instance for fluent chaining</returns>
+    protected SymphonyException AddTypedContext(string key, Type? type)
+    {
+        if (type != null)
+        {
+            WithContext(key, type.FullName);
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Seals the exception context, preventing further modifications.
+    /// This is called internally when the exception is thrown.
+    /// </summary>
+    internal void Seal() => _isSealed = true;
+
+    /// <summary>
+    /// Exports exception data in a structured format suitable for logging frameworks
+    /// </summary>
+    /// <returns>Dictionary containing error code, message, stack trace, and context</returns>
+    public IDictionary<string, object?> ToStructuredLog()
+    {
+        return new Dictionary<string, object?>
+        {
+            ["ErrorCode"] = ErrorCode,
+            ["Message"] = Message,
+            ["StackTrace"] = StackTrace,
+            ["Context"] = new Dictionary<string, object?>(_context),
+            ["ResolutionHint"] = ResolutionHint
+        };
+    }
+
+    /// <summary>
+    /// Gets a formatted error message including error code, context, and resolution hint
     /// </summary>
     /// <returns>Formatted error message</returns>
     public override string ToString()
     {
-        var baseMessage = base.ToString();
+        var builder = new StringBuilder();
+        builder.Append('[');
+        builder.Append(ErrorCode);
+        builder.Append("] ");
+        builder.Append(base.ToString());
 
-        if (Context.Count == 0)
-            return $"[{ErrorCode}] {baseMessage}";
+        if (_context.Count > 0)
+        {
+            builder.AppendLine();
+            builder.Append("Context: ");
+            builder.AppendJoin(", ", _context.Select(kvp => $"{kvp.Key}={kvp.Value}"));
+        }
 
-        var contextString = string.Join(", ", Context.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-        return $"[{ErrorCode}] {baseMessage}\nContext: {contextString}";
+        if (!string.IsNullOrWhiteSpace(ResolutionHint))
+        {
+            builder.AppendLine();
+            builder.Append("Resolution: ");
+            builder.Append(ResolutionHint);
+        }
+
+        return builder.ToString();
     }
 }
 
@@ -133,6 +222,14 @@ public sealed class HandlerNotFoundException : SymphonyException
     public Type? ExpectedHandlerType { get; }
 
     /// <summary>
+    /// Gets a hint on how to resolve this exception
+    /// </summary>
+    public override string ResolutionHint =>
+        ExpectedHandlerType != null
+            ? $"Register the handler using: services.AddRequestHandler<{RequestType.Name}, {ExpectedHandlerType.Name}>()"
+            : $"Ensure that a handler for '{RequestType.Name}' is registered in the DI container using services.AddMediator()";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="HandlerNotFoundException"/> class.
     /// </summary>
     /// <param name="requestType">The request type that has no registered handler.</param>
@@ -141,14 +238,17 @@ public sealed class HandlerNotFoundException : SymphonyException
     /// This constructor automatically populates the exception context with the request type
     /// and expected handler type information for debugging purposes.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when requestType is null</exception>
     public HandlerNotFoundException(Type requestType, Type? expectedHandlerType = null)
-        : base($"No handler registered for request type '{requestType.Name}'")
+        : base($"No handler registered for request type '{requestType?.Name ?? "Unknown"}'")
     {
+        ArgumentNullException.ThrowIfNull(requestType);
+
         RequestType = requestType;
         ExpectedHandlerType = expectedHandlerType;
 
-        WithContext("RequestType", requestType.FullName)
-            .WithContext("ExpectedHandlerType", expectedHandlerType?.FullName);
+        WithContext("RequestType", requestType.FullName);
+        AddTypedContext("ExpectedHandlerType", expectedHandlerType);
     }
 
     /// <summary>
@@ -161,14 +261,17 @@ public sealed class HandlerNotFoundException : SymphonyException
     /// This constructor automatically populates the exception context with the request type
     /// and expected handler type information for debugging purposes.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when requestType is null</exception>
     public HandlerNotFoundException(Type requestType, Type? expectedHandlerType, Exception innerException)
-        : base($"No handler registered for request type '{requestType.Name}'", innerException)
+        : base($"No handler registered for request type '{requestType?.Name ?? "Unknown"}'", innerException)
     {
+        ArgumentNullException.ThrowIfNull(requestType);
+
         RequestType = requestType;
         ExpectedHandlerType = expectedHandlerType;
 
-        WithContext("RequestType", requestType.FullName)
-            .WithContext("ExpectedHandlerType", expectedHandlerType?.FullName);
+        WithContext("RequestType", requestType.FullName);
+        AddTypedContext("ExpectedHandlerType", expectedHandlerType);
     }
 }
 
@@ -217,6 +320,14 @@ public sealed class MethodResolutionException : SymphonyException
     public Type[]? ExpectedParameterTypes { get; }
 
     /// <summary>
+    /// Gets a hint on how to resolve this exception
+    /// </summary>
+    public override string ResolutionHint =>
+        ExpectedParameterTypes != null
+            ? $"Ensure that '{TargetType.Name}' has a public method '{MethodName}' with signature: ({string.Join(", ", ExpectedParameterTypes.Select(t => t.Name))})"
+            : $"Ensure that '{TargetType.Name}' has a public method named '{MethodName}' with the correct signature";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="MethodResolutionException"/> class.
     /// </summary>
     /// <param name="targetType">The type where method resolution failed.</param>
@@ -225,9 +336,14 @@ public sealed class MethodResolutionException : SymphonyException
     /// Use this constructor when method resolution fails due to a missing method
     /// without specific parameter type requirements.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when targetType is null</exception>
+    /// <exception cref="ArgumentException">Thrown when methodName is null or whitespace</exception>
     public MethodResolutionException(Type targetType, string methodName)
-        : base($"Method '{methodName}' not found on type '{targetType.Name}'")
+        : base($"Method '{methodName}' not found on type '{targetType?.Name ?? "Unknown"}'")
     {
+        ArgumentNullException.ThrowIfNull(targetType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
+
         TargetType = targetType;
         MethodName = methodName;
 
@@ -245,9 +361,15 @@ public sealed class MethodResolutionException : SymphonyException
     /// Use this constructor when method resolution fails due to a missing method with
     /// a specific signature. This provides more detailed diagnostic information.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when targetType or expectedParameterTypes is null</exception>
+    /// <exception cref="ArgumentException">Thrown when methodName is null or whitespace</exception>
     public MethodResolutionException(Type targetType, string methodName, Type[] expectedParameterTypes)
-        : base($"Method '{methodName}' with expected signature not found on type '{targetType.Name}'")
+        : base($"Method '{methodName}' with expected signature not found on type '{targetType?.Name ?? "Unknown"}'")
     {
+        ArgumentNullException.ThrowIfNull(targetType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
+        ArgumentNullException.ThrowIfNull(expectedParameterTypes);
+
         TargetType = targetType;
         MethodName = methodName;
         ExpectedParameterTypes = expectedParameterTypes;
@@ -267,9 +389,14 @@ public sealed class MethodResolutionException : SymphonyException
     /// Use this constructor when method resolution fails due to an underlying exception
     /// during the reflection process.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when targetType is null</exception>
+    /// <exception cref="ArgumentException">Thrown when methodName is null or whitespace</exception>
     public MethodResolutionException(Type targetType, string methodName, Exception innerException)
-        : base($"Method '{methodName}' resolution failed on type '{targetType.Name}'", innerException)
+        : base($"Method '{methodName}' resolution failed on type '{targetType?.Name ?? "Unknown"}'", innerException)
     {
+        ArgumentNullException.ThrowIfNull(targetType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
+
         TargetType = targetType;
         MethodName = methodName;
 
@@ -324,6 +451,12 @@ public sealed class HandlerValidationException : SymphonyException
     public string ValidationRule { get; }
 
     /// <summary>
+    /// Gets a hint on how to resolve this exception
+    /// </summary>
+    public override string ResolutionHint =>
+        $"Verify that '{HandlerType.Name}' implements the required interfaces and follows the mediator handler pattern. Check the validation rule: {ValidationRule}";
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="HandlerValidationException"/> class.
     /// </summary>
     /// <param name="handlerType">The handler type that failed validation.</param>
@@ -333,9 +466,15 @@ public sealed class HandlerValidationException : SymphonyException
     /// This constructor automatically populates the exception context with the handler type
     /// and validation rule information for debugging purposes.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when handlerType is null</exception>
+    /// <exception cref="ArgumentException">Thrown when validationRule or message is null or whitespace</exception>
     public HandlerValidationException(Type handlerType, string validationRule, string message)
-        : base($"Handler validation failed for type '{handlerType.Name}': {message}")
+        : base($"Handler validation failed for type '{handlerType?.Name ?? "Unknown"}': {message}")
     {
+        ArgumentNullException.ThrowIfNull(handlerType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(validationRule);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+
         HandlerType = handlerType;
         ValidationRule = validationRule;
 
@@ -354,9 +493,15 @@ public sealed class HandlerValidationException : SymphonyException
     /// This constructor automatically populates the exception context with the handler type
     /// and validation rule information for debugging purposes.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when handlerType is null</exception>
+    /// <exception cref="ArgumentException">Thrown when validationRule or message is null or whitespace</exception>
     public HandlerValidationException(Type handlerType, string validationRule, string message, Exception innerException)
-        : base($"Handler validation failed for type '{handlerType.Name}': {message}", innerException)
+        : base($"Handler validation failed for type '{handlerType?.Name ?? "Unknown"}': {message}", innerException)
     {
+        ArgumentNullException.ThrowIfNull(handlerType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(validationRule);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+
         HandlerType = handlerType;
         ValidationRule = validationRule;
 
