@@ -389,14 +389,19 @@ catch (SymphonyException ex)
 ```
 ├── Core/
 │   ├── Mediator.cs                    # Main mediator implementation
-│   └── MediatorExecutionHelper.cs     # Execution helper with Expression Trees
+│   ├── MediatorExecutionHelper.cs     # Public API for handler execution
+│   ├── Unit.cs                        # Unit type for void responses
+│   └── Execution/
+│       ├── DelegateCache.cs           # Thread-safe delegate caching
+│       ├── DelegateCompiler.cs        # Expression Tree compilation
+│       ├── MethodResolver.cs          # Handler method resolution
+│       └── NextDelegateWrapper.cs     # Pipeline delegate wrapping
 ├── Interfaces/
 │   ├── IMediator.cs                   # Main mediator interface
 │   ├── IRequest.cs                    # Request marker interfaces
 │   ├── IRequestHandler.cs             # Request handler interfaces
 │   ├── IEventHandler.cs               # Event handler interface
-│   ├── IPipelineBehavior.cs           # Pipeline behavior interface
-│   └── Unit.cs                        # Unit type for void responses
+│   └── IPipelineBehavior.cs           # Pipeline behavior interface
 ├── Extensions/
 │   ├── ServiceCollectionExtensions.cs # DI registration extensions
 │   └── MediatorOptions.cs             # Fluent configuration options
