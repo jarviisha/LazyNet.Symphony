@@ -1,0 +1,32 @@
+Summary
+  Generated on: 1/23/2026 - 8:18:10 AM
+  Coverage date: 1/23/2026 - 8:18:00 AM
+  Parser: Cobertura
+  Assemblies: 1
+  Classes: 10
+  Files: 7
+  Line coverage: 86%
+  Covered lines: 710
+  Uncovered lines: 115
+  Coverable lines: 825
+  Total lines: 2241
+  Branch coverage: 67.4% (147 of 218)
+  Covered branches: 147
+  Total branches: 218
+  Method coverage: 90.9% (110 of 121)
+  Full method coverage: 82.6% (100 of 121)
+  Covered methods: 110
+  Fully covered methods: 100
+  Total methods: 121
+
+LazyNet.Symphony                                              86%
+  LazyNet.Symphony.Core.Mediator                             100%
+  LazyNet.Symphony.Core.MediatorExecutionHelper             78.7%
+  LazyNet.Symphony.Exceptions.HandlerNotFoundException       100%
+  LazyNet.Symphony.Exceptions.HandlerValidationException     100%
+  LazyNet.Symphony.Exceptions.MethodResolutionException      100%
+  LazyNet.Symphony.Exceptions.SymphonyException              100%
+  LazyNet.Symphony.Extensions.MediatorOptions                100%
+  LazyNet.Symphony.Extensions.ServiceCollectionExtensions     74%
+  LazyNet.Symphony.Interfaces.IRequestHandler<T>             100%
+  LazyNet.Symphony.Interfaces.Unit                           100%
