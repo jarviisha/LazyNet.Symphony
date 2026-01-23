@@ -1,3 +1,5 @@
+using LazyNet.Symphony.Core;
+
 namespace LazyNet.Symphony.Interfaces;
 
 /// <summary>

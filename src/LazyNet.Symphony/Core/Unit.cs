@@ -1,4 +1,4 @@
-namespace LazyNet.Symphony.Interfaces;
+namespace LazyNet.Symphony.Core;
 
 /// <summary>
 /// Represents a void return type for requests that don't return a meaningful value.

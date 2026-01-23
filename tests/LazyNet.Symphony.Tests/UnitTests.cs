@@ -1,5 +1,5 @@
 using FluentAssertions;
-using LazyNet.Symphony.Interfaces;
+using LazyNet.Symphony.Core;
 
 namespace LazyNet.Symphony.Tests;
 
