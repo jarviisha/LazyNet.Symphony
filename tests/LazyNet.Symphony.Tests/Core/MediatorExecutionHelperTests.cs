@@ -3,7 +3,7 @@ using LazyNet.Symphony.Core;
 using LazyNet.Symphony.Exceptions;
 using LazyNet.Symphony.Interfaces;
 
-namespace LazyNet.Symphony.Tests;
+namespace LazyNet.Symphony.Tests.Core;
 
 public class MediatorExecutionHelperTests
 {

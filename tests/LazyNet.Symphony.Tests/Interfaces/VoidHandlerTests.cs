@@ -4,7 +4,7 @@ using LazyNet.Symphony.Core;
 using Microsoft.Extensions.DependencyInjection;
 using LazyNet.Symphony.Extensions;
 
-namespace LazyNet.Symphony.Tests;
+namespace LazyNet.Symphony.Tests.Interfaces;
 
 /// <summary>
 /// Tests for IRequestHandler&lt;TRequest&gt; (void handler) default implementation.

@@ -1,7 +1,7 @@
 using FluentAssertions;
 using LazyNet.Symphony.Core;
 
-namespace LazyNet.Symphony.Tests;
+namespace LazyNet.Symphony.Tests.Core;
 
 /// <summary>
 /// Tests for the Unit struct.

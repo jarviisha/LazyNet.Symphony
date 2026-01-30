@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 using LazyNet.Symphony.Core;
 
-namespace LazyNet.Symphony.Tests;
+namespace LazyNet.Symphony.Tests.Integration;
 
 public class MediatorIntegrationTests
 {

@@ -5,7 +5,7 @@ using LazyNet.Symphony.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 
-namespace LazyNet.Symphony.Tests;
+namespace LazyNet.Symphony.Tests.Extensions;
 
 public class ServiceCollectionExtensionsTests
 {

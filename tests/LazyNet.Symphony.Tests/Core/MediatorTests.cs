@@ -4,7 +4,7 @@ using LazyNet.Symphony.Interfaces;
 using LazyNet.Symphony.Exceptions;
 using Moq;
 
-namespace LazyNet.Symphony.Tests;
+namespace LazyNet.Symphony.Tests.Core;
 
 public class MediatorTests
 {
